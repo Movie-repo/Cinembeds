@@ -1,44 +1,100 @@
+const crypto = require('crypto');
 const axios = require('axios');
 
-// Confirmed AES-CBC decoder for VidZee encrypted link format.
-// Format (after initial atob in site script): ivBase64:cipherBase64
-// ivBase64 -> CryptoJS Base64 parsed to WordArray (IV)
-// Key: UTF-8 bytes of "qrincywincyspider" padded with nulls to 32 bytes (AES-256-CBC)
-// Cipher: base64 ciphertext, PKCS7 padding, mode CBC.
-let cryptoJs; // lazy load to avoid cost if not needed
-function decodeVidZeeToken(token, debug) {
+const BASE_URL = 'https://core.vidzee.wtf';
+const PLAYER_URL = 'https://player.vidzee.wtf';
+const VIDZEE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.7051.98 Safari/537.36',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': PLAYER_URL,
+    'Origin': PLAYER_URL
+};
+
+// Pad/truncate key string to 32 bytes (UTF-8, mirrors CryptoJS behaviour)
+function getKeyBytes(key) {
+    const encoded = Buffer.from(key, 'utf8');
+    const result = Buffer.alloc(32);
+    encoded.copy(result, 0, 0, Math.min(encoded.length, 32));
+    return result;
+}
+
+// AES-256-CBC decrypt a VidZee stream link.
+// encryptedData is outer-base64 of "ivBase64:cipherBase64"
+async function decryptLink(encryptedData, decryptionKey) {
     try {
-        if (typeof token !== 'string') return null;
-        if (/^https?:\/\//i.test(token)) return null; // already a URL
-        // Expect pattern base64:base64 (iv:cipher)
-        const raw = Buffer.from(token, 'base64').toString('utf8');
-        if (!raw.includes(':')) return null;
-        const [ivB64, cipherB64] = raw.split(':');
-        if (!ivB64 || !cipherB64) return null;
-        if (!cryptoJs) cryptoJs = require('crypto-js');
-        const iv = cryptoJs.enc.Base64.parse(ivB64.trim());
-        const keyStr = 'qrincywincyspider';
-        // Pad key with nulls to 32 bytes
-        const keyUtf8 = cryptoJs.enc.Utf8.parse(keyStr.padEnd(32, '\0'));
-        const decrypted = cryptoJs.AES.decrypt(cipherB64.trim(), keyUtf8, {
-            iv,
-            mode: cryptoJs.mode.CBC,
-            padding: cryptoJs.pad.Pkcs7
-        }).toString(cryptoJs.enc.Utf8);
-        if (!decrypted) return null;
-        if (!/^https?:\/\//i.test(decrypted)) {
-            if (debug) console.log('[VidZee] decrypted but not a URL', decrypted.slice(0,80));
-            return null;
-        }
-        if (debug) console.log('[VidZee] AES decoded token', { tokenSnippet: token.slice(0, 24)+'...', url: decrypted.slice(0,120) });
-        return decrypted.trim();
-    } catch (e) {
-        if (debug) console.log('[VidZee] AES decode error', e.message);
-        return null;
+        if (!encryptedData || !decryptionKey) return '';
+
+        const decoded = Buffer.from(encryptedData, 'base64').toString('utf8');
+        const colonIdx = decoded.indexOf(':');
+        if (colonIdx === -1) return '';
+
+        const ivBase64 = decoded.slice(0, colonIdx);
+        const cipherBase64 = decoded.slice(colonIdx + 1);
+        if (!ivBase64 || !cipherBase64) return '';
+
+        const iv = Buffer.from(ivBase64, 'base64');
+        const cipherBytes = Buffer.from(cipherBase64, 'base64');
+        const keyBytes = getKeyBytes(decryptionKey);
+
+        const decipher = crypto.createDecipheriv('aes-256-cbc', keyBytes, iv);
+        const decrypted = Buffer.concat([decipher.update(cipherBytes), decipher.final()]);
+        return decrypted.toString('utf8');
+    } catch {
+        return '';
     }
 }
 
-// Removed unused parseArgs helper
+// Derive the real AES-CBC decryption key from VidZee's API-key blob via AES-GCM.
+// Mirrors the TypeScript deriveKey() in the reference implementation.
+async function deriveKey(e) {
+    try {
+        if (!e) return '';
+
+        const t = Buffer.from(e.replace(/\s+/g, ''), 'base64');
+        if (t.length <= 28) return '';
+
+        const n = t.slice(0, 12);   // AES-GCM IV
+        const r = t.slice(12, 28);
+        const a = t.slice(28);
+
+        // i = a || r  (reference: i.set(a, 0); i.set(r, a.length))
+        const i = Buffer.concat([a, r]);
+
+        // AES-256-GCM key = SHA-256 of fixed salt string
+        const l = crypto.createHash('sha256')
+            .update('4f2a9c7d1e8b3a6f0d5c2e9a7b1f4d8c', 'utf8')
+            .digest();
+
+        // WebCrypto passes ciphertext+tag as one buffer; tag is last 16 bytes
+        const ciphertext = i.slice(0, i.length - 16);
+        const authTag = i.slice(i.length - 16);
+
+        const decipher = crypto.createDecipheriv('aes-256-gcm', l, n);
+        decipher.setAuthTag(authTag);
+        const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+        return decrypted.toString('utf8');
+    } catch {
+        return '';
+    }
+}
+
+// Fetch and derive the current decryption key from VidZee's API
+async function fetchDecryptionKey() {
+    try {
+        const response = await axios.get(`${BASE_URL}/api-key`, {
+            headers: VIDZEE_HEADERS,
+            responseType: 'text',
+            timeout: 10000
+        });
+        if (response.status === 200 && response.data) {
+            return await deriveKey(response.data);
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 const getVidZeeStreams = async (tmdbId, mediaType, seasonNum, episodeNum) => {
     if (!tmdbId) {
@@ -62,41 +118,31 @@ const getVidZeeStreams = async (tmdbId, mediaType, seasonNum, episodeNum) => {
         }
     }
 
-    const servers = [1,2,3,4,5,6,7,8,9,10]; // VidZee server identifiers
+    // Fetch and derive the decryption key before hitting servers
+    const decKey = await fetchDecryptionKey();
+    if (!decKey) {
+        console.error('[VidZee] Failed to fetch/derive decryption key.');
+        return [];
+    }
+    console.log('[VidZee] Decryption key derived successfully.');
+
+    // Servers 0–13 (matches reference implementation)
+    const servers = Array.from({ length: 14 }, (_, i) => i);
 
     const streamPromises = servers.map(async (sr) => {
-        let targetApiUrl = `https://player.vidzee.wtf/api/server?id=${tmdbId}&sr=${sr}`;
-
+        let apiUrl = `${PLAYER_URL}/api/server?id=${tmdbId}&sr=${sr}`;
         if (mediaType === 'tv') {
-            targetApiUrl += `&ss=${seasonNum}&ep=${episodeNum}`;
+            apiUrl += `&ss=${seasonNum}&ep=${episodeNum}`;
         }
 
-        let finalApiUrl;
-        const headers = {
-            'Referer': `https://player.vidzee.wtf/embed/movie/${tmdbId}`
-        };
-        const timeout = 7000; // Reduced timeout
-
-        finalApiUrl = targetApiUrl;
-
-        console.log(`[VidZee] Fetching from server ${sr}: ${targetApiUrl}`);
-
         try {
-            const response = await axios.get(finalApiUrl, {
-                headers: headers,
-                timeout: timeout
+            const response = await axios.get(apiUrl, {
+                headers: VIDZEE_HEADERS,
+                timeout: 7000
             });
 
             const responseData = response.data;
-
-            if (!responseData || typeof responseData !== 'object') {
-                console.error(`[VidZee S${sr}] Error: Invalid response data from API.`);
-                return [];
-            }
-            
-            if (responseData.tracks) {
-                delete responseData.tracks;
-            }
+            if (!responseData || typeof responseData !== 'object') return [];
 
             let apiSources = [];
             if (responseData.url && Array.isArray(responseData.url)) {
@@ -105,57 +151,51 @@ const getVidZeeStreams = async (tmdbId, mediaType, seasonNum, episodeNum) => {
                 apiSources = [responseData];
             }
 
-            if (!apiSources || apiSources.length === 0) {
-                console.log(`[VidZee S${sr}] No stream sources found in API response.`);
-                return [];
-            }
+            if (apiSources.length === 0) return [];
 
-            const streams = apiSources.map(sourceItem => {
+            const streams = await Promise.all(apiSources.map(async (sourceItem) => {
                 const label = sourceItem.name || sourceItem.type || 'VidZee';
                 let quality = String(label).match(/^\d+$/) ? `${label}p` : label;
-                if (!/(\d{3,4})p/.test(quality.toLowerCase())) {
-                    quality = '720p';
-                }
-                const language = sourceItem.language || sourceItem.lang;
+                if (!/\d{3,4}p/.test(quality)) quality = '720p';
+                const language = sourceItem.language || sourceItem.lang || 'Unknown';
+
                 let rawLink = sourceItem.link;
-                const debug = process.env.VIDZEE_DEBUG === '1';
-                const decoded = decodeVidZeeToken(rawLink, debug);
-                if (decoded && /^https?:\/\//i.test(decoded)) {
-                    if (debug) console.log('[VidZee] decoded link', { beforeSample: rawLink.slice(0,40)+'...', after: decoded.slice(0,80) });
-                    rawLink = decoded;
+                if (rawLink && !/^https?:\/\//i.test(rawLink)) {
+                    const decoded = await decryptLink(rawLink, decKey);
+                    if (decoded && /^https?:\/\//i.test(decoded)) {
+                        rawLink = decoded;
+                    } else {
+                        console.log(`[VidZee S${sr}] Decryption yielded non-URL, skipping.`);
+                        return null;
+                    }
                 }
+
+                if (!rawLink || !/^https?:\/\//i.test(rawLink)) return null;
+
                 return {
                     name: `VidZee Server${sr} - ${quality} - ${language}`,
                     title: `VidZee Server${sr} - ${quality} - ${language}`,
                     url: rawLink,
-                    quality: quality,
-                    provider: "VidZee",
-                    headers: { 
-                        'Referer': 'https://core.vidzee.wtf/'
-                    }
+                    quality,
+                    provider: 'VidZee',
+                    headers: { 'Referer': `${BASE_URL}/` }
                 };
-            }).filter(stream => stream.url);
+            }));
 
-            console.log(`[VidZee S${sr}] Successfully extracted ${streams.length} streams. Qualities: ${streams.map(s=>s.quality).join(', ')}`);
-            return streams;
-
-        } catch (error) {
-            if (error.response) {
-                console.error(`[VidZee S${sr}] Error fetching: ${error.response.status} ${error.response.statusText}`);
-            } else if (error.request) {
-                console.error(`[VidZee S${sr}] Error fetching: No response received.`);
-            } else {
-                console.error(`[VidZee S${sr}] Error fetching:`, error.message);
+            const valid = streams.filter(Boolean);
+            if (valid.length > 0) {
+                console.log(`[VidZee S${sr}] ${valid.length} stream(s) extracted.`);
             }
+            return valid;
+        } catch (error) {
+            console.error(`[VidZee S${sr}] Error: ${error.message}`);
             return [];
         }
     });
 
-    const allStreamsNested = await Promise.all(streamPromises);
-    const allStreams = allStreamsNested.flat();
-
-    console.log(`[VidZee] Found a total of ${allStreams.length} streams from servers ${servers.join(', ')}.`);
+    const allStreams = (await Promise.all(streamPromises)).flat();
+    console.log(`[VidZee] Total streams: ${allStreams.length}`);
     return allStreams;
 };
 
-module.exports = { getVidZeeStreams }; 
+module.exports = { getVidZeeStreams };

@@ -154,15 +154,13 @@ function fillForm(data){
 		const tmdbProvidersEnabled = [
 			merged.enableShowboxProvider !== false,
 			merged.enable4khdhubProvider !== false,
-			merged.enableMoviesmodProvider !== false,
-			merged.enableMp4hydraProvider !== false
+			merged.enableMoviesmodProvider !== false
 		].some(Boolean);
 		tmdbBanner.style.display = (tmdbMissing && tmdbProvidersEnabled)? 'block':'none';
 	}
 	const advBools = [
 		['enable4khdhubProvider','adv_enable4khdhub'],
 		['enableMoviesmodProvider','adv_enableMoviesmod'],
-		['enableMp4hydraProvider','adv_enableMp4hydra'],
 		['enableVidzeeProvider','adv_enableVidzee'],
 		['enableVixsrcProvider','adv_enableVixsrc'],
 		['enableProxy','adv_enableProxy'],
@@ -246,7 +244,6 @@ async function save(){
 	const boolMap = {
 		adv_enable4khdhub:'enable4khdhubProvider',
 		adv_enableMoviesmod:'enableMoviesmodProvider',
-		adv_enableMp4hydra:'enableMp4hydraProvider',
 		adv_enableVidzee:'enableVidzeeProvider',
 		adv_enableVixsrc:'enableVixsrcProvider',
 		adv_enableProxy:'enableProxy',
@@ -339,7 +336,6 @@ async function clearAll(){
 		enableShowboxProvider: true,
 		enable4khdhubProvider: true,
 		enableMoviesmodProvider: true,
-		enableMp4hydraProvider: true,
 		enableVidzeeProvider: true,
 		enableVixsrcProvider: true,
 		enableProxy: false,
@@ -449,7 +445,7 @@ async function loadServerStatus(){
 	}
 }
 async function runProviderFunctionalChecks(){
-	const targetTmdb = '293660'; // TMDB ID provided
+	const targetTmdb = '550'; // TMDB ID provided
 	const provEnhanced = document.getElementById('statusProvidersEnhanced');
 	const summary = document.getElementById('providerCheckSummary');
 	if(!provEnhanced) return;

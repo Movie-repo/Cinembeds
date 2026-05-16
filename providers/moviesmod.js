@@ -202,7 +202,7 @@ async function extractDownloadLinks(moviePageUrl) {
 
             if (header.is('h3') && headerText.toLowerCase().includes('season')) {
                 // TV Show Logic
-                const linkElements = blockContent.find('a.maxbutton-episode-links, a.maxbutton-batch-zip');
+                const linkElements = blockContent.find('a.maxbutton-episode-links, a.maxbutton-batch-zip, a.maxbutton-download-links, a[href*="links.modpro.blog"], a[href*="posts.modpro.blog"]');
                 linkElements.each((j, linkEl) => {
                     const buttonText = $(linkEl).text().trim();
                     const linkUrl = $(linkEl).attr('href');
@@ -214,15 +214,17 @@ async function extractDownloadLinks(moviePageUrl) {
                     }
                 });
             } else if (header.is('h4')) {
-                // Movie Logic
-                const linkElement = blockContent.find('a[href*="modrefer.in"]').first();
+                // Movie Logic - site changed from modrefer.in to links.modpro.blog
+                const linkElement = blockContent.find('a.maxbutton-download-links, a[href*="links.modpro.blog"], a[href*="posts.modpro.blog"], a[href*="modrefer.in"]').first();
                 if (linkElement.length > 0) {
                     const link = linkElement.attr('href');
                     const cleanQuality = extractQuality(headerText);
-                    links.push({
-                        quality: cleanQuality,
-                        url: link
-                    });
+                    if (link && cleanQuality && cleanQuality !== 'Unknown') {
+                        links.push({
+                            quality: cleanQuality,
+                            url: link
+                        });
+                    }
                 }
             }
         });
@@ -239,7 +241,35 @@ async function resolveIntermediateLink(initialUrl, refererUrl, quality) {
     try {
         const urlObject = new URL(initialUrl);
 
-        if (urlObject.hostname.includes('dramadrip.com')) {
+        if (urlObject.hostname.includes('links.modpro.blog') || urlObject.hostname.includes('posts.modpro.blog')) {
+            const { data } = await makeRequest(initialUrl, { headers: { 'Referer': refererUrl } });
+            const $ = cheerio.load(data);
+            const finalLinks = [];
+
+            // Primary: scoped to .entry-content
+            $('.entry-content a[href*="driveseed.org"], .entry-content a[href*="cloud.unblockedgames.world"], .entry-content a[href*="tech.creativeexpressionsblog.com"], .entry-content a[href*="tech.examzculture.in"], .entry-content a[href*="tech.unblockedgames.world"], .entry-content a[href*="tech.examdegree.site"]').each((i, el) => {
+                const link = $(el).attr('href');
+                const text = $(el).text().trim();
+                if (link && text && !text.toLowerCase().includes('batch')) {
+                    finalLinks.push({ server: text.replace(/\s+/g, ' '), url: link });
+                }
+            });
+
+            // Fallback: page-wide search
+            if (finalLinks.length === 0) {
+                $('a[href*="driveseed.org"], a[href*="cloud.unblockedgames.world"], a[href*="tech.creativeexpressionsblog.com"], a[href*="tech.examzculture.in"], a[href*="tech.unblockedgames.world"], a[href*="tech.examdegree.site"]').each((i, el) => {
+                    const link = $(el).attr('href');
+                    const text = $(el).text().trim();
+                    if (link && text && !text.toLowerCase().includes('batch')) {
+                        finalLinks.push({ server: text.replace(/\s+/g, ' ') || 'Download Link', url: link });
+                    }
+                });
+            }
+
+            console.log(`[MoviesMod] Found ${finalLinks.length} links from ${urlObject.hostname}`);
+            return finalLinks;
+
+        } else if (urlObject.hostname.includes('dramadrip.com')) {
             const { data: dramaData } = await makeRequest(initialUrl, { headers: { 'Referer': refererUrl } });
             const $$ = cheerio.load(dramaData);
 
@@ -779,18 +809,38 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
             }
 
             const { default: fetch } = await import('node-fetch');
-            const tmdbUrl = `https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+            const tmdbUrl = `https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=external_ids`;
             const tmdbDetails = await (await fetch(tmdbUrl)).json();
 
             const title = mediaType === 'tv' ? tmdbDetails.name : tmdbDetails.title;
             const year = mediaType === 'tv' ? tmdbDetails.first_air_date?.substring(0, 4) : tmdbDetails.release_date?.substring(0, 4);
+            const imdbId = tmdbDetails.external_ids?.imdb_id || null;
             if (!title) throw new Error('Could not get title from TMDB');
 
-            console.log(`[MoviesMod] Found metadata: ${title} (${year})`);
-            const searchResults = await searchMoviesMod(title);
+            console.log(`[MoviesMod] Found metadata: ${title} (${year})${imdbId ? ` [IMDB: ${imdbId}]` : ''}`);
+
+            // Try IMDb ID search first — more reliable than title matching
+            let searchResults = [];
+            if (imdbId) {
+                const imdbQuery = (mediaType === 'tv' && seasonNum) ? `${imdbId} Season ${seasonNum}` : imdbId;
+                console.log(`[MoviesMod] Trying IMDB ID search: ${imdbQuery}`);
+                searchResults = await searchMoviesMod(imdbQuery);
+                if (searchResults.length > 0) {
+                    console.log(`[MoviesMod] Found ${searchResults.length} results via IMDB ID`);
+                }
+            }
+
+            if (searchResults.length === 0) {
+                console.log(`[MoviesMod] Falling back to title search: ${title}`);
+                searchResults = await searchMoviesMod(title);
+                if (searchResults.length === 0 && mediaType === 'tv' && seasonNum) {
+                    searchResults = await searchMoviesMod(`${title} Season ${seasonNum}`);
+                }
+            }
+
             if (searchResults.length === 0) throw new Error(`No search results found for "${title}"`);
 
-            // --- NEW: Use string similarity to find the best match ---
+            // --- Use string similarity to find the best match ---
             const titles = searchResults.map(r => r.title);
             const bestMatch = findBestMatch(title, titles);
 
@@ -853,21 +903,27 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                         const finalLinks = await resolveIntermediateLink(link.url, selectedResult.url, link.quality);
                         if (!finalLinks || finalLinks.length === 0) return null;
 
-                        // Resolve to driveseed redirect URLs (intermediate step) for caching
+                        // Resolve to host redirect URLs (intermediate step) for caching
                         const driveseedPromises = finalLinks.map(async (targetLink) => {
                             try {
                                 let currentUrl = targetLink.url;
 
-                                // Handle SID links if they appear
-                                if (currentUrl.includes('tech.unblockedgames.world') || currentUrl.includes('tech.creativeexpressionsblog.com') || currentUrl.includes('tech.examzculture.in')) {
+                                // Handle SID links (all known tech-unblock domains)
+                                if (
+                                    currentUrl.includes('tech.unblockedgames.world') ||
+                                    currentUrl.includes('cloud.unblockedgames.world') ||
+                                    currentUrl.includes('tech.creativeexpressionsblog.com') ||
+                                    currentUrl.includes('tech.examzculture.in') ||
+                                    currentUrl.includes('tech.examdegree.site')
+                                ) {
                                     const resolvedUrl = await resolveTechUnblockedLink(currentUrl);
                                     if (!resolvedUrl) return null;
                                     currentUrl = resolvedUrl;
                                 }
 
-                                // Only process if it's a driveseed URL
-                                if (currentUrl && currentUrl.includes('driveseed.org')) {
-                                    console.log(`[MoviesMod] Caching driveseed redirect URL for ${targetLink.server}: ${currentUrl}`);
+                                // Accept driveseed.org or driveleech.net (same operator, same page structure)
+                                if (currentUrl && (currentUrl.includes('driveseed.org') || currentUrl.includes('driveleech.net'))) {
+                                    console.log(`[MoviesMod] Resolved host URL for ${targetLink.server}: ${currentUrl}`);
                                     return { ...targetLink, driveseedRedirectUrl: currentUrl };
                                 }
                                 return null;
@@ -932,9 +988,11 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                     const { driveseedRedirectUrl } = targetLink;
                     if (!driveseedRedirectUrl) return null;
 
-                    // Process the cached driveseed redirect URL
-                    if (driveseedRedirectUrl.includes('driveseed.org')) {
-                        // First, resolve the driveseed redirect URL to get the final file page URL
+                    // Process the cached host redirect URL (driveseed.org or driveleech.net)
+                    if (driveseedRedirectUrl.includes('driveseed.org') || driveseedRedirectUrl.includes('driveleech.net')) {
+                        const hostOrigin = new URL(driveseedRedirectUrl).origin;
+
+                        // Resolve the redirect URL to get the final file page URL
                         const response = await makeRequest(driveseedRedirectUrl, {
                             headers: {
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -949,7 +1007,8 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                         let $; // single declaration for cheerio instance
                         if (redirectMatch && redirectMatch[1]) {
                             const finalPath = redirectMatch[1];
-                            finalFilePageUrl = `https://driveseed.org${finalPath}`;
+                            // Use the dynamic host origin — works for both driveseed.org and driveleech.net
+                            finalFilePageUrl = finalPath.startsWith('http') ? finalPath : `${hostOrigin}${finalPath}`;
                             console.log(`[MoviesMod] Resolved redirect to final file page: ${finalFilePageUrl}`);
 
                             // Load the final file page
@@ -996,7 +1055,7 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                             downloadOptions.push({
                                 title: 'Resume Cloud',
                                 type: 'resume',
-                                url: `https://driveseed.org${resumeCloudLink}`,
+                                url: resumeCloudLink.startsWith('http') ? resumeCloudLink : `${hostOrigin}${resumeCloudLink}`,
                                 priority: 1
                             });
                         }

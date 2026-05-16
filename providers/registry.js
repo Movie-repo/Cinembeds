@@ -10,10 +10,13 @@ const providerFunctionMap = {
   'Showbox.js': 'getStreamsFromTmdbId',
   '4khdhub.js': 'get4KHDHubStreams',
   'moviesmod.js': 'getMoviesModStreams',
-  'MP4Hydra.js': 'getMP4HydraStreams',
   'VidZee.js': 'getVidZeeStreams',
   'vixsrc.js': 'getVixsrcStreams',
-  'uhdmovies.js': 'getUHDMoviesStreams',
+  'videasy.js': 'getVideasyStreams',
+  'vidlink.js': 'getVidlinkStreams',
+  'lordflix.js': 'getLordflixStreams',
+  'notorrent.js': 'getNotorrentStreams',
+  'dahmermovies.js': 'getDahmermoviesStreams',
 };
 
 // Stats for debug endpoint
@@ -27,7 +30,7 @@ async function getEffectiveCookies() {
 function getProviderFiles() {
   const providersDir = path.join(__dirname);
   return fs.readdirSync(providersDir)
-    .filter(file => file.endsWith('.js') && file !== 'registry.js' && file !== 'vidsrcextractor.js')
+    .filter(file => file.endsWith('.js') && file !== 'registry.js')
     .map(file => ({
       name: path.parse(file).name.toLowerCase(),
       file: file,
@@ -110,28 +113,29 @@ function createFetchFunction(providerInfo) {
   };
 }
 
-// Initialize providers
+// Initialize providers - always load all; enabled state is checked dynamically from live config
 const providerFiles = getProviderFiles();
 const providers = [];
 
 for (const providerInfo of providerFiles) {
-  const enableFlag = `enable${providerInfo.name.charAt(0).toUpperCase() + providerInfo.name.slice(1)}Provider`;
-  const enabled = config[enableFlag] !== false;
-
-  if (enabled) {
-    providers.push({
-      name: providerInfo.name,
-      enabled: true,
-      fetch: createFetchFunction(providerInfo)
-    });
-    console.log(`[registry] ${providerInfo.name} provider enabled`);
-  } else {
-    console.log(`[registry] ${providerInfo.name} disabled via config`);
-  }
+  providers.push({
+    name: providerInfo.name,
+    fetch: createFetchFunction(providerInfo)
+  });
+  console.log(`[registry] ${providerInfo.name} provider loaded`);
 }
 
-function listProviders() { return providers.map(p => ({ name: p.name, enabled: p.enabled })); }
-function getProvider(name) { return providers.find(p => p.name === name.toLowerCase()) || null; }
+function isProviderEnabled(name) {
+  const flag = `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`;
+  return config[flag] !== false;
+}
+
+function listProviders() { return providers.map(p => ({ name: p.name, enabled: isProviderEnabled(p.name) })); }
+function getProvider(name) {
+  const p = providers.find(p => p.name === name.toLowerCase());
+  if (!p) return null;
+  return { ...p, enabled: isProviderEnabled(p.name) };
+}
 
 function getCookieStats() { return lastCookieStats; }
 

@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat" />
   <img src="https://img.shields.io/badge/Status-Active-success?style=flat" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat" />
-  <img src="https://img.shields.io/badge/Version-1.0.9-informational?style=flat" />
+  <img src="https://img.shields.io/badge/Version-1.1.0-informational?style=flat" />
   <img src="https://img.shields.io/docker/pulls/inside4ndroid/tmdb-embed-api?label=Docker%20Pulls&style=flat" />
 </p>
 
@@ -34,7 +34,7 @@
 
 ## ✨ Features
 - **Multi‑TMDB Key Rotation** – Supply multiple API keys; one is chosen randomly per request.
-- **Provider Aggregation** – Pluggable providers (4khdhub, MoviesMod, MP4Hydra, VidZee, Vixsrc, UHDMovies) with per‑provider enable toggles + default selection.
+- **Provider Aggregation** – Pluggable providers (Showbox/FebBox, 4KHDHub, MoviesMod, VidZee, VixSrc, Videasy, Vidlink, LordFlix, NoTorrent, DahmerMovies) with per‑provider enable toggles + default selection.
 - **🔥 Plugin System** – Drop new provider files in `providers/` and add its exported function to the registry map (`providers/registry.js` → `providerFunctionMap`).
 - **Dynamic Filtering** – Minimum quality presets, custom JSON quality map, codec exclusion rules (presets + JSON).
 - **Runtime Overrides UI** – Fully interactive web admin at `/` (login protected) writing to `utils/user-config.json`.
@@ -225,12 +225,16 @@ Session is revalidated on visibility and back/forward navigation to prevent stal
 The API supports a plugin system. Drop a new provider file in the `providers/` folder and register its exported function in `providers/registry.js` under `providerFunctionMap`.
 
 ### Current Built-in Providers
+- `showbox` - Showbox/FebBox streams (requires FebBox JWT cookie)
 - `4khdhub` - 4KHDHub streams
-- `moviesmod` - MoviesMod streams  
-- `mp4hydra` - MP4Hydra streams
+- `moviesmod` - MoviesMod streams
 - `vidzee` - VidZee streams
-- `vixsrc` - Vixsrc streams
-- `uhdmovies` - UHD Movies streams
+- `vixsrc` - VixSrc streams
+- `videasy` - Videasy streams (10 servers via enc-dec.app)
+- `vidlink` - Vidlink streams (via enc-dec.app)
+- `lordflix` - LordFlix streams (9 servers via enc-dec.app)
+- `notorrent` - NoTorrent streams (Stremio addon API)
+- `dahmermovies` - DahmerMovies streams (direct file links)
 
 
 ### Adding a New Provider
@@ -240,12 +244,16 @@ The API supports a plugin system. Drop a new provider file in the `providers/` f
    ```js
    // providers/registry.js
    const providerFunctionMap = {
+     'Showbox.js': 'getStreamsFromTmdbId',
      '4khdhub.js': 'get4KHDHubStreams',
      'moviesmod.js': 'getMoviesModStreams',
-     'MP4Hydra.js': 'getMP4HydraStreams',
      'VidZee.js': 'getVidZeeStreams',
      'vixsrc.js': 'getVixsrcStreams',
-  'uhdmovies.js': 'getUHDMoviesStreams',
+     'videasy.js': 'getVideasyStreams',
+     'vidlink.js': 'getVidlinkStreams',
+     'lordflix.js': 'getLordflixStreams',
+     'notorrent.js': 'getNotorrentStreams',
+     'dahmermovies.js': 'getDahmermoviesStreams',
      'yourprovider.js': 'getYourproviderStreams'
    };
    ```
@@ -378,7 +386,11 @@ PRs welcome. Keep changes focused and avoid unrelated formatting churn. For new 
 ## ❤️ Sponsorship
 If this project helps you, consider sponsoring to support continued development & maintenance:
 
-➡️ **GitHub Sponsors:** https://github.com/sponsors/Inside4ndroid
+<p align="center">
+  <a href="https://github.com/sponsors/Inside4ndroid">
+    <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white" alt="Sponsor on GitHub" />
+  </a>
+</p>
 
 Every contribution accelerates feature delivery & sustainability.
 

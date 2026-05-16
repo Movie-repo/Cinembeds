@@ -62,8 +62,9 @@ const getCookieForRequest = async (regionPreference = null, userCookie = null) =
         try {
             const array = Array.isArray(global.currentRequestConfig.cookies) ? global.currentRequestConfig.cookies.filter(Boolean) : [];
             if (array.length > 0) {
-                // Just pick first for now (quota logic removed here if previously elsewhere)
-                baseCookieToUse = array[0];
+                // Strip 'ui=' prefix if present — callers always prepend 'ui=' themselves
+                const raw = array[0];
+                baseCookieToUse = raw.startsWith('ui=') ? raw.slice(3) : raw;
             }
         } catch (e) {
             console.warn(`[CookieManager] Cookie array selection error: ${e.message}`);
@@ -1211,7 +1212,12 @@ const fetchSourcesForSingleFid = async (fidToProcess, shareKey, regionPreference
 
     const baseHeaders = {
         'Cookie': `ui=${cookieForRequest}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Origin': 'https://www.febbox.com',
+        'Referer': `https://www.febbox.com/share/${shareKey}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': '*/*',
     };
 
     const finalPostUrl = FEBBOX_PLAYER_URL;
@@ -1221,7 +1227,7 @@ const fetchSourcesForSingleFid = async (fidToProcess, shareKey, regionPreference
     console.log(`  Fetching fresh player data for video FID: ${fidToProcess} (Share: ${shareKey}) directly to ${FEBBOX_PLAYER_URL}`);
 
     try {
-        const response = await axios.post(finalPostUrl, postDataForAxios, axiosConfig);
+        const response = await axios.post(finalPostUrl, postDataForAxios, { ...axiosConfig, responseType: 'text' });
         const playerContent = response.data;
 
         // Mark the region as available if the request succeeded

@@ -57,7 +57,7 @@ function getProviderNames() {
     const providersDir = path.join(process.cwd(), 'providers');
     if (!fs.existsSync(providersDir)) return [];
     return fs.readdirSync(providersDir)
-      .filter(file => file.endsWith('.js') && file !== 'registry.js' && file !== 'vidsrcextractor.js')
+      .filter(file => file.endsWith('.js') && file !== 'registry.js')
       .map(file => path.parse(file).name.toLowerCase());
   } catch (e) {
     console.warn('[config] Failed to scan providers directory:', e.message);

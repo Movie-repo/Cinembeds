@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-05-16
+
+## Dependency Security
+- **npm vulnerabilities fixed**: Upgraded `cheerio` (1.0.0 → 1.2.0) and `axios-cookiejar-support` (6.0.2 → 7.0.0) to eliminate 14 vulnerabilities (including `undici <=6.23.0` high/critical CVEs). Result: 0 vulnerabilities.
+
+### Added
+- **Videasy provider**: 10-server parallel scraper via enc-dec.app decrypt relay.
+- **Vidlink provider**: Single-stream HLS source via enc-dec.app encode relay.
+- **LordFlix provider**: 9-server scraper via enc-dec.app (replaces defunct Vidsync).
+- **NoTorrent provider**: Stremio addon API bridge (`addon-osvh.onrender.com`).
+- **DahmerMovies provider**: Open-directory direct file link scraper with proxy rewrite.
+- **GitHub Sponsors button**: Official iframe embed in admin sidebar and README badge.
+
+### Removed
+- **Vidsync provider**: All 6 servers returned HTTP 401 — API locked. Replaced by LordFlix.
+- **MP4Hydra provider**: Dead upstream, removed entirely.
+- **UHDMovies provider**: Dead upstream, removed entirely.
+- **vidsrcextractor.js**: Unused legacy file removed.
+
+### Fixed
+- **Provider enable/disable not working at runtime**: Removed the startup-time enabled/disabled filter. All providers are now always loaded into the registry array. `listProviders()` and `getProvider()` now call `isProviderEnabled(name)` which reads the live `config` object on every call. Changes take effect immediately without a server restart.
+- **Showbox/FebBox provider**: Restored with correct `responseType:'text'`, AJAX headers, and double `ui=` cookie bug fix.
+- **MoviesMod provider**: Updated class-based selectors and added support for `links.modpro.blog`, `cloud.unblockedgames.world`, `tech.examdegree.site`, and `driveleech.net` domains.
+- **VixSrc provider**: Corrected to proper 2-step API flow.
+
+---
+
 ## [1.0.9] - 2025-11-19
 
 ### Removed
