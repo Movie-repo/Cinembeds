@@ -104,7 +104,12 @@ async function getVideasyStreams(tmdbId, mediaType = 'movie', seasonNum = null, 
                 });
             }
             console.log(`[Videasy] Server ${name}: ${resData.sources.length} source(s)`);
-        } catch {
+        } catch (err) {
+    console.error(`\n===== ${name} =====`);
+    console.error("Status:", err.response?.status);
+    console.error("Data:", err.response?.data);
+    console.error("Message:", err.message);
+}
             // server unreachable or returned no data — skip silently
         }
     }));
