@@ -47,6 +47,9 @@ async function getVideasyStreams(tmdbId, mediaType = 'movie', seasonNum = null, 
             imdbId: (data.external_ids && data.external_ids.imdb_id) || '',
             type
         };
+      
+        console.log("[Videasy] TMDB Details:", details);
+
     } catch (err) {
         console.error(`[Videasy] TMDB lookup failed: ${err.message}`);
         return [];
@@ -79,11 +82,23 @@ async function getVideasyStreams(tmdbId, mediaType = 'movie', seasonNum = null, 
             const encryptedText = typeof encRes.data === 'string' ? encRes.data : JSON.stringify(encRes.data);
             if (!encryptedText || encryptedText.length < 20 || encryptedText.startsWith('<')) return;
 
+            console.log(`[${name}] URL:`, apiUrl);
+console.log(`[${name}] Status:`, encRes.status);
+console.log(`[${name}] Content-Type:`, encRes.headers["content-type"]);
+console.log(
+    `[${name}] Response:`,
+    typeof encRes.data === "string"
+        ? encRes.data.slice(0, 300)
+        : encRes.data
+);
+
             // Step 3: Decrypt via enc-dec.app
             const decRes = await axios.post(DECRYPT_URL,
                 { text: encryptedText, id: String(tmdbId) },
                 { headers: { 'Content-Type': 'application/json' }, timeout: 8000 }
             );
+
+        console.log(`[${name}] Decrypt Response:`, decRes.data);
 
             const resData = (decRes.data && decRes.data.result) || decRes.data;
             if (!resData || !Array.isArray(resData.sources)) return;
@@ -104,14 +119,13 @@ async function getVideasyStreams(tmdbId, mediaType = 'movie', seasonNum = null, 
                 });
             }
             console.log(`[Videasy] Server ${name}: ${resData.sources.length} source(s)`);
-        } catch (err) {
+        }  catch (err) {
     console.error(`\n===== ${name} =====`);
+    console.error("Request URL:", apiUrl);
     console.error("Status:", err.response?.status);
+    console.error("Headers:", err.response?.headers);
     console.error("Data:", err.response?.data);
     console.error("Message:", err.message);
-    console.log(apiUrl);
-console.log(encRes.status);
-console.log(encRes.data);
 }
             // server unreachable or returned no data — skip silently
         }
