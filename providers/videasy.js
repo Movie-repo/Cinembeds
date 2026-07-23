@@ -109,6 +109,9 @@ async function getVideasyStreams(tmdbId, mediaType = 'movie', seasonNum = null, 
     console.error("Status:", err.response?.status);
     console.error("Data:", err.response?.data);
     console.error("Message:", err.message);
+    console.log(apiUrl);
+console.log(encRes.status);
+console.log(encRes.data);
 }
             // server unreachable or returned no data — skip silently
         }
