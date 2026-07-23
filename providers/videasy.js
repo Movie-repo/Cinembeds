@@ -128,7 +128,7 @@ console.log(
     console.error("Message:", err.message);
 }
             // server unreachable or returned no data — skip silently
-        }
+
     }));
 
     console.log(`[Videasy] Total streams: ${allStreams.length}`);
